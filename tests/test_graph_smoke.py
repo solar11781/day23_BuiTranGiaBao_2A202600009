@@ -2,11 +2,14 @@ import importlib.util
 
 import pytest
 
-pytestmark = pytest.mark.skipif(importlib.util.find_spec("langgraph") is None, reason="langgraph not installed in local environment")
-
 from langgraph_agent_lab.graph import build_graph
 from langgraph_agent_lab.persistence import build_checkpointer
 from langgraph_agent_lab.state import Route, Scenario, initial_state
+
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("langgraph") is None,
+    reason="langgraph not installed in local environment",
+)
 
 
 @pytest.mark.parametrize(
@@ -17,10 +20,25 @@ from langgraph_agent_lab.state import Route, Scenario, initial_state
         ("Refund this customer", Route.RISKY.value),
     ],
 )
-def test_graph_runs_basic_routes(query, expected_route):
+def test_graph_runs_basic_routes(query: str, expected_route: str) -> None:
     graph = build_graph(checkpointer=build_checkpointer("memory"))
     scenario = Scenario(id="smoke", query=query, expected_route=Route(expected_route))
     state = initial_state(scenario)
     result = graph.invoke(state, config={"configurable": {"thread_id": state["thread_id"]}})
     assert result["route"] == expected_route
     assert result.get("final_answer") or result.get("pending_question")
+
+
+def test_tool_route_uses_parallel_mock_tools() -> None:
+    graph = build_graph(checkpointer=build_checkpointer("memory"))
+    scenario = Scenario(
+        id="parallel",
+        query="Please lookup order status for order 123",
+        expected_route=Route.TOOL,
+    )
+    state = initial_state(scenario)
+    result = graph.invoke(state, config={"configurable": {"thread_id": state["thread_id"]}})
+    nodes = [event["node"] for event in result["events"]]
+    assert "account_tool" in nodes
+    assert "policy_tool" in nodes
+    assert len(result["tool_results"]) == 2

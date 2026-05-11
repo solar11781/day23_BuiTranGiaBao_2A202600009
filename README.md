@@ -2,7 +2,7 @@
 
 Build a production-style LangGraph workflow for a support-ticket agent with state management, conditional routing, retry loops, human-in-the-loop approval, persistence, and metrics.
 
-This is a **starter skeleton**. Core logic is left as `TODO(student)` — implement your own design.
+This version includes the completed lab implementation with core graph logic, metrics, report generation, persistence, HITL support, Streamlit UI, and Mermaid diagram export.
 
 ---
 
@@ -141,7 +141,7 @@ make test
      max retry    → dead_letter → finalize → END
    ```
 
-5. **Verify**: `make test` and `make run-scenarios`
+5. **Verify**: `make test` and `make run-all`
 
 ### Phase 2: Persistence (75–120 min) — worth 15 points
 
@@ -152,9 +152,9 @@ make test
 
 ### Phase 3: Metrics & report (120–180 min) — worth 35 points
 
-7. **Run all scenarios**: `make run-scenarios` → generates `outputs/metrics.json`
-8. **Validate**: `make grade-local` → checks metrics schema
-9. **Write report**: Fill `reports/lab_report.md` — explain architecture, metrics, failures, improvements
+7. **Run the complete lab**: `make run-all` → generates baseline, extended, SQLite, crash-resume, time-travel, parallel fan-out, and diagram evidence
+8. **Validate**: `make grade-local` → checks the baseline `outputs/metrics.json` schema
+9. **Review the one report**: `reports/lab_report.md` contains the baseline results and extension evidence in the Extension work section
 
 ### Phase 4: Bonus extensions (180+ min) — push toward 90+
 
@@ -176,7 +176,12 @@ Pick one or more:
 | `make test` | Run pytest |
 | `make lint` | Run ruff linter |
 | `make typecheck` | Run mypy type checker |
-| `make run-scenarios` | Execute all scenarios → `outputs/metrics.json` |
+| `make run-all` | Run baseline, extended, SQLite, crash-resume, time-travel, parallel fan-out, export diagram, and write one consolidated report |
+| `make run-scenarios` | Execute baseline scenarios → `outputs/metrics.json` and `reports/lab_report.md` |
+| `make run-extended` | Execute extended mock scenarios → `outputs/metrics_extended.json` only |
+| `make run-sqlite` | Execute baseline scenarios with SQLite → `outputs/metrics_sqlite.json` only |
+| `make verify-extensions` | Print crash-resume, time-travel, and parallel fan-out evidence |
+| `make export-diagram` | Export Mermaid graph text → `outputs/graph.mmd` |
 | `make grade-local` | Validate metrics.json schema |
 | `make clean` | Remove caches and generated files |
 
@@ -184,16 +189,16 @@ Pick one or more:
 
 ## Submission checklist
 
-- [ ] All `TODO(student)` sections completed
-- [ ] `make test` passes
-- [ ] `make run-scenarios` generates valid `outputs/metrics.json`
-- [ ] `make grade-local` passes validation
-- [ ] `reports/lab_report.md` filled in with architecture explanation, metrics analysis, and improvement ideas
-- [ ] Can explain at least one route and one failure mode during demo
+- [x] All source implementation sections completed
+- [x] `make test` passes
+- [x] `make run-all` generates valid metrics, Mermaid diagram, and one consolidated report
+- [x] `make grade-local` passes validation
+- [x] `reports/lab_report.md` filled in with architecture explanation, metrics analysis, extension work, and improvement ideas
+- [x] Can explain at least one route and one failure mode during demo
 
 **For 90+ points, also include:**
-- [ ] At least one bonus extension (persistence, parallel fan-out, HITL, time travel, diagram)
-- [ ] Evidence of extension in report (screenshot, log output, or diagram)
+- [x] Bonus extensions completed: persistence, crash-resume, time travel, parallel fan-out, HITL, Streamlit UI, and diagram
+- [x] Evidence of extensions in the single report and generated Mermaid diagram
 
 ---
 

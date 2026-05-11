@@ -7,28 +7,247 @@ from pathlib import Path
 from .metrics import MetricsReport
 
 
-def render_report_stub(metrics: MetricsReport) -> str:
-    """Return a minimal report stub.
-
-    TODO(student): replace with a richer report using the template in reports/.
-    """
-    return f"""# Day 08 Lab Report
-
-## Metrics summary
-
-- Total scenarios: {metrics.total_scenarios}
-- Success rate: {metrics.success_rate:.2%}
-- Average nodes visited: {metrics.avg_nodes_visited:.2f}
-- Total retries: {metrics.total_retries}
-- Total interrupts: {metrics.total_interrupts}
-
-## TODO(student)
-
-Explain your architecture, state schema, failure modes, and improvement plan.
-"""
+def _scenario_rows(metrics: MetricsReport) -> str:
+    rows = [
+        "| Scenario | Expected route | Actual route | Success | Retries | Interrupts | Errors |",
+        "|---|---|---|---:|---:|---:|---|",
+    ]
+    for item in metrics.scenario_metrics:
+        errors = "; ".join(item.errors) if item.errors else "-"
+        rows.append(
+            "| "
+            f"{item.scenario_id} | {item.expected_route} | {item.actual_route or '-'} | "
+            f"{item.success} | {item.retry_count} | {item.interrupt_count} | {errors} |"
+        )
+    return "\n".join(rows)
 
 
-def write_report(metrics: MetricsReport, output_path: str | Path) -> None:
+def _extension_summary_rows(extension_metrics: dict[str, MetricsReport] | None) -> str:
+    rows = [
+        (
+            "| Extension evidence | Scenarios | Success rate | Retries | "
+            "Interrupts | Resume evidence |"
+        ),
+        "|---|---:|---:|---:|---:|---:|",
+    ]
+    if not extension_metrics:
+        rows.append("| No extension metrics supplied | - | - | - | - | - |")
+        return "\n".join(rows)
+
+    labels = {
+        "extended_mock_scenarios": "Extended mock scenarios",
+        "sqlite_persistence": "SQLite persistence run",
+    }
+    for key, report in extension_metrics.items():
+        rows.append(
+            "| "
+            f"{labels.get(key, key.replace('_', ' ').title())} | "
+            f"{report.total_scenarios} | {report.success_rate:.2%} | "
+            f"{report.total_retries} | {report.total_interrupts} | "
+            f"{report.resume_success} |"
+        )
+    return "\n".join(rows)
+
+
+
+def _format_bool(value: object) -> str:
+    """Render bool-like extension evidence in a report-friendly way."""
+    return "yes" if value is True else "no" if value is False else str(value)
+
+
+def _extension_evidence_section(extension_evidence: dict[str, object] | None) -> list[str]:
+    """Render concrete evidence for optional extension demos."""
+    if not extension_evidence:
+        return ["No extension demo evidence supplied."]
+
+    parallel = extension_evidence.get("parallel_fanout") or {}
+    crash = extension_evidence.get("crash_resume") or {}
+    time_travel = extension_evidence.get("time_travel") or {}
+    if not isinstance(parallel, dict):
+        parallel = {}
+    if not isinstance(crash, dict):
+        crash = {}
+    if not isinstance(time_travel, dict):
+        time_travel = {}
+
+    branches = parallel.get("branches") or []
+    branch_text = ", ".join(str(branch) for branch in branches) if branches else "-"
+
+    return [
+        "Detailed extension evidence:",
+        "",
+        "| Extension | Verified | Evidence |",
+        "|---|---:|---|",
+        (
+            "| Parallel fan-out | "
+            f"{_format_bool(parallel.get('success'))} | "
+            f"Observed branches: `{branch_text}`; "
+            f"merged tool results: {parallel.get('tool_result_count', '-')}. |"
+        ),
+        (
+            "| Crash-resume | "
+            f"{_format_bool(crash.get('success'))} | "
+            f"Thread `{crash.get('thread_id', '-')}` interrupted before restart: "
+            f"{_format_bool(crash.get('interrupted_before_restart'))}; "
+            f"history checkpoints {crash.get('history_before_restart', '-')} -> "
+            f"{crash.get('history_after_restart', '-')}; approval observed: "
+            f"{_format_bool(crash.get('approval_observed'))}. |"
+        ),
+        (
+            "| Time travel replay | "
+            f"{_format_bool(time_travel.get('success'))} | "
+            f"Thread `{time_travel.get('thread_id', '-')}` had "
+            f"{time_travel.get('history_count', '-')} checkpoints; replayed from step "
+            f"{time_travel.get('replayed_from_step', '-')}; final answer matched: "
+            f"{_format_bool(time_travel.get('replay_final_answer_matches'))}. |"
+        ),
+    ]
+
+
+def render_report_stub(
+    metrics: MetricsReport,
+    extension_metrics: dict[str, MetricsReport] | None = None,
+    diagram_path: str | Path | None = None,
+    extension_evidence: dict[str, object] | None = None,
+) -> str:
+    """Render the completed lab report using the required template sections."""
+    diagram_text = str(diagram_path) if diagram_path else "outputs/graph.mmd"
+    lines = [
+        "# Day 08 Lab Report",
+        "",
+        "## 1. Team / student",
+        "",
+        "- Name: Student",
+        "- Repo/commit: Local lab23 submission",
+        "- Date: Generated by `agent-lab run-all`",
+        "",
+        "## 2. Architecture",
+        "",
+        "The workflow is a support-ticket LangGraph state machine with explicit node boundaries:",
+        "",
+        "`START -> intake -> classify`, then conditional routing sends the ticket through one",
+        "of five paths:",
+        "",
+        "- `simple -> answer -> finalize -> END`",
+        "- `tool -> tool -> account_tool/policy_tool -> evaluate -> answer -> finalize -> END`",
+        "- `missing_info -> clarify -> finalize -> END`",
+        (
+            "- `risky -> risky_action -> approval -> tool -> account_tool/policy_tool "
+            "-> evaluate -> answer -> finalize -> END`"
+        ),
+        (
+            "- `error -> retry -> tool -> account_tool/policy_tool -> evaluate "
+            "-> retry/dead_letter -> finalize -> END`"
+        ),
+        "",
+        "The classifier uses keyword and state logic rather than scenario IDs. Routing priority",
+        "follows the lab instructions: risky keywords first, then tool keywords, short/vague",
+        "missing-info queries, error keywords, and finally the simple default.",
+        "",
+        "## 3. State schema",
+        "",
+        "| Field | Reducer | Why |",
+        "|---|---|---|",
+        "| `thread_id` | overwrite | Stable LangGraph checkpoint key for one run. |",
+        "| `scenario_id` | overwrite | Identifies the scenario for metrics only. |",
+        "| `query` | overwrite | Intake stores the normalized user request. |",
+        "| `route` | overwrite | The current route classification. |",
+        "| `risk_level` | overwrite | Latest risk assessment for approval decisions. |",
+        "| `attempt` | overwrite | Current retry attempt count. |",
+        "| `max_attempts` | overwrite | Scenario/configured retry bound. |",
+        "| `final_answer` | overwrite | Final user-facing response. |",
+        "| `pending_question` | overwrite | Clarification requested when data is missing. |",
+        "| `proposed_action` | overwrite | Risky action package sent to HITL approval. |",
+        "| `approval` | overwrite | Latest human/mock approval decision. |",
+        "| `evaluation_result` | overwrite | Retry loop gate. |",
+        "| `should_retry` | overwrite | Scenario switch for transient mock tool failures. |",
+        "| `messages` | append | Lightweight conversation/audit messages. |",
+        "| `tool_results` | append | Preserves all mock tool attempts for retry analysis. |",
+        "| `errors` | append | Preserves retry and dead-letter evidence. |",
+        "| `events` | append | Node-level audit trail used by metrics. |",
+        "",
+        "## 4. Scenario results",
+        "",
+        "Baseline grading scenarios from `data/sample/scenarios.jsonl`:",
+        "",
+        f"- Total scenarios: {metrics.total_scenarios}",
+        f"- Success rate: {metrics.success_rate:.2%}",
+        f"- Average nodes visited: {metrics.avg_nodes_visited:.2f}",
+        f"- Total retries: {metrics.total_retries}",
+        f"- Total interrupts: {metrics.total_interrupts}",
+        f"- Resume/state-history evidence: {metrics.resume_success}",
+        "",
+        _scenario_rows(metrics),
+        "",
+        "## 5. Failure analysis",
+        "",
+        "1. Retry or tool failure: error-route tickets intentionally enter `retry` before",
+        "   the tool. The tool returns a transient `ERROR:` result for early attempts,",
+        "   `evaluate` marks it as `needs_retry`, and `route_after_retry` either loops",
+        "   back to `tool` or sends the request to `dead_letter` at the retry bound.",
+        "2. Risky action without approval: risky requests must pass through",
+        "   `risky_action` and `approval`. Approved decisions continue to the tool.",
+        "   Rejections route to `clarify`, preventing unapproved external actions.",
+        "",
+        "## 6. Persistence / recovery evidence",
+        "",
+        "`build_checkpointer` supports `memory` for tests and `sqlite` for durable local",
+        "checkpoints. Every scenario uses `thread_id = thread-<scenario_id>`, passed",
+        "through LangGraph `configurable.thread_id`. With SQLite enabled, checkpoints",
+        "are stored in `outputs/checkpoints.sqlite`, and state history can be inspected",
+        "with `graph.get_state_history(...)` after a run.",
+        "",
+        "## 7. Extension work",
+        "",
+        "The single-command workflow writes extension evidence here instead of creating",
+        "separate extension report files.",
+        "",
+        _extension_summary_rows(extension_metrics),
+        "",
+        *_extension_evidence_section(extension_evidence),
+        "",
+        "Completed requested extensions:",
+        "",
+        "- Real HITL: set `LANGGRAPH_INTERRUPT=true`; `approval_node` calls `interrupt()`.",
+        "- Streamlit UI: `streamlit_app.py` provides approve/reject controls and resumes",
+        "  interrupted risky requests with the supplied decision.",
+        f"- Graph diagram: Mermaid graph text is exported to `{diagram_text}`.",
+        "- Crash-resume: a risky request is interrupted, the graph/checkpointer is rebuilt,",
+        "  and the same thread is resumed from SQLite with approval.",
+        "- Time travel replay: `get_state_history()` locates an earlier checkpoint and",
+        "  replays the graph from that checkpoint.",
+        "- Parallel fan-out: `Send()` dispatches two mock tool branches, and append reducers",
+        "  merge their evidence before evaluation.",
+        "- SQLite persistence: `configs/lab_sqlite.yaml` runs with `checkpointer: sqlite`,",
+        "  `SqliteSaver`, and WAL mode enabled.",
+        "- Optional extended mock scenarios: `configs/lab_extended.yaml` runs additional",
+        "  mock tickets for broader local coverage without replacing the baseline set.",
+        "",
+        "## 8. Improvement plan",
+        "",
+        "With one more day, the first production improvements would be structured real",
+        "tool integrations, durable dead-letter storage with alerting, richer approval",
+        "roles, latency timing per node, and stricter validation of tool evidence.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def write_report(
+    metrics: MetricsReport,
+    output_path: str | Path,
+    extension_metrics: dict[str, MetricsReport] | None = None,
+    diagram_path: str | Path | None = None,
+    extension_evidence: dict[str, object] | None = None,
+) -> None:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(render_report_stub(metrics), encoding="utf-8")
+    path.write_text(
+        render_report_stub(
+            metrics,
+            extension_metrics=extension_metrics,
+            diagram_path=diagram_path,
+            extension_evidence=extension_evidence,
+        ),
+        encoding="utf-8",
+    )

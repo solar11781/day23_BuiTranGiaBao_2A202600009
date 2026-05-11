@@ -1,0 +1,2 @@
+scenarios_path: data/sample/scenarios_extended.jsonl
+checkpointer: memory
